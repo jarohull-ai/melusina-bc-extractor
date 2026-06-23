@@ -118,16 +118,18 @@ class TestRequiredExamples:
 
     def test_5_implicit_terminology_correction(self, extractor: Extractor):
         """
-        Example 5 — IMPLICIT signal: 'nie mów fine-tuning, mówimy dostrajanie'
-        Expected: BEHAVIORAL_RULES / BETA / implicit
+        Example 5 — 'nie mów fine-tuning, mówimy dostrajanie'
+        Updated: now correctly classified as DOMAIN (terminology replacement),
+        not IMPLICIT. The new DOMAIN pattern takes priority over generic IMPLICIT.
+        Expected: DOMAIN_KNOWLEDGE / GAMMA / domain
         """
         msg  = "nie mów 'fine-tuning', mówimy 'dostrajanie'"
         rule = run(extractor, msg)
 
         assert rule is not None
-        assert rule.section == Section.BEHAVIORAL_RULES.value
-        assert rule.cls     == RuleClass.BETA.value
-        assert rule.source  == SignalType.IMPLICIT.value
+        assert rule.section == Section.DOMAIN_KNOWLEDGE.value
+        assert rule.cls     == RuleClass.GAMMA.value
+        assert rule.source  == SignalType.DOMAIN.value
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Additional edge-case tests
@@ -251,3 +253,111 @@ class TestExtractorPipeline:
         assert d["source"]  in ("explicit", "implicit", "domain")
         assert d["key"].startswith("RULE_")
         assert "T" in d["timestamp"]  # ISO8601 check
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# New DOMAIN pattern tests — "nie mów X, mówimy Y" and variants
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestDomainPatternsExtended:
+    """Tests for the 4 new DOMAIN patterns added to extractor.py."""
+
+    def test_nie_mow_mowimy(self, detector: SignalDetector, extractor: Extractor):
+        """'nie mów fine-tuning, mówimy dostrajanie' → DOMAIN / GAMMA"""
+        msg = "nie mów 'fine-tuning', mówimy 'dostrajanie'"
+        sig = detector.detect(msg)
+        assert sig is not None
+        assert sig.signal_type == SignalType.DOMAIN, \
+            f"Expected DOMAIN, got {sig.signal_type} (matched: '{sig.matched_pattern}')"
+        assert sig.section    == Section.DOMAIN_KNOWLEDGE
+        assert sig.rule_class == RuleClass.GAMMA
+
+        rule = run(extractor, msg)
+        assert rule is not None
+        assert rule.source  == SignalType.DOMAIN.value
+        assert rule.section == Section.DOMAIN_KNOWLEDGE.value
+
+    def test_nie_mow_mowi_sie(self, detector: SignalDetector):
+        """'nie mów GPU, mówi się karta graficzna' → DOMAIN"""
+        sig = detector.detect("nie mów GPU, mówi się karta graficzna")
+        assert sig is not None
+        assert sig.signal_type == SignalType.DOMAIN
+
+    def test_nie_nazywaj_to_jest(self, detector: SignalDetector, extractor: Extractor):
+        """'nie nazywaj tego modelem, to jest agent' → DOMAIN / GAMMA"""
+        msg = "nie nazywaj tego modelem, to jest agent"
+        sig = detector.detect(msg)
+        assert sig is not None
+        assert sig.signal_type == SignalType.DOMAIN, \
+            f"Expected DOMAIN, got {sig.signal_type}"
+        assert sig.section    == Section.DOMAIN_KNOWLEDGE
+
+        rule = run(extractor, msg)
+        assert rule is not None
+        assert rule.source == SignalType.DOMAIN.value
+
+    def test_nie_nazywaj_to_sie_nazywa(self, detector: SignalDetector):
+        """'nie nazywaj tego pluginem, to się nazywa adapter' → DOMAIN"""
+        sig = detector.detect("nie nazywaj tego pluginem, to się nazywa adapter")
+        assert sig is not None
+        assert sig.signal_type == SignalType.DOMAIN
+
+    def test_zamiast_uzywaj(self, detector: SignalDetector, extractor: Extractor):
+        """'zamiast fine-tuning używaj dostrajanie' → DOMAIN / GAMMA"""
+        msg = "zamiast fine-tuning używaj dostrajanie"
+        sig = detector.detect(msg)
+        assert sig is not None
+        assert sig.signal_type == SignalType.DOMAIN, \
+            f"Expected DOMAIN, got {sig.signal_type}"
+
+        rule = run(extractor, msg)
+        assert rule is not None
+        assert rule.source  == SignalType.DOMAIN.value
+        assert rule.section == Section.DOMAIN_KNOWLEDGE.value
+        assert rule.cls     == RuleClass.GAMMA.value
+
+    def test_zamiast_mow(self, detector: SignalDetector):
+        """'zamiast API mów interfejs' → DOMAIN"""
+        sig = detector.detect("zamiast API mów interfejs")
+        assert sig is not None
+        assert sig.signal_type == SignalType.DOMAIN
+
+    def test_zamiast_stosuj(self, detector: SignalDetector):
+        """'zamiast pętli for stosuj list comprehension' → DOMAIN"""
+        sig = detector.detect("zamiast pętli for stosuj list comprehension")
+        assert sig is not None
+        assert sig.signal_type == SignalType.DOMAIN
+
+    def test_przestan_mowic_chodzi_o(self, detector: SignalDetector, extractor: Extractor):
+        """'przestań mówić model, chodzi o agenta' → DOMAIN / GAMMA"""
+        msg = "przestań mówić model, chodzi o agenta"
+        sig = detector.detect(msg)
+        assert sig is not None
+        assert sig.signal_type == SignalType.DOMAIN, \
+            f"Expected DOMAIN, got {sig.signal_type}"
+
+        rule = run(extractor, msg)
+        assert rule is not None
+        assert rule.source == SignalType.DOMAIN.value
+
+    def test_przestan_uzywac_mam_na_mysli(self, detector: SignalDetector):
+        """'przestań używać tego słowa, mam na myśli coś innego' → DOMAIN"""
+        sig = detector.detect("przestań używać tego słowa, mam na myśli coś innego")
+        assert sig is not None
+        assert sig.signal_type == SignalType.DOMAIN
+
+    def test_domain_takes_priority_over_implicit(self, detector: SignalDetector):
+        """
+        'nie mów X, mówimy Y' must be classified as DOMAIN not IMPLICIT.
+        The DOMAIN pattern must appear before the generic IMPLICIT 'nie mów' pattern.
+        """
+        for msg in [
+            "nie mów 'fine-tuning', mówimy 'dostrajanie'",
+            "nie mów GPU, mówi się karta graficzna",
+            "zamiast LLM używaj model językowy",
+            "nie nazywaj tego pluginem, to się nazywa adapter",
+        ]:
+            sig = detector.detect(msg)
+            assert sig is not None
+            assert sig.signal_type == SignalType.DOMAIN, \
+                f"'{msg}' → expected DOMAIN, got {sig.signal_type} (matched: '{sig.matched_pattern}')"
