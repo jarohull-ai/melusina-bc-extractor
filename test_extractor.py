@@ -361,3 +361,161 @@ class TestDomainPatternsExtended:
             assert sig is not None
             assert sig.signal_type == SignalType.DOMAIN, \
                 f"'{msg}' → expected DOMAIN, got {sig.signal_type} (matched: '{sig.matched_pattern}')"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# English pattern tests
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestEnglishPatterns:
+    """Tests for English-language signal detection."""
+
+    # ── EXPLICIT EN ───────────────────────────────────────────────────────────
+
+    def test_en_from_now_on_always(self, detector: SignalDetector, extractor: Extractor):
+        """'from now on always respond in English' → EXPLICIT / ALPHA"""
+        msg = "from now on always respond in English"
+        sig = detector.detect(msg)
+        assert sig is not None
+        assert sig.signal_type == SignalType.EXPLICIT
+        assert sig.rule_class  == RuleClass.ALPHA
+        assert sig.section     == Section.BEHAVIORAL_RULES
+
+        rule = run(extractor, msg)
+        assert rule is not None
+        assert rule.source == SignalType.EXPLICIT.value
+
+    def test_en_never(self, detector: SignalDetector, extractor: Extractor):
+        """'never use emoji in responses' → EXPLICIT / ALPHA"""
+        msg = "never use emoji in responses"
+        sig = detector.detect(msg)
+        assert sig is not None
+        assert sig.signal_type == SignalType.EXPLICIT
+        assert sig.rule_class  == RuleClass.ALPHA
+
+        rule = run(extractor, msg)
+        assert rule is not None
+        assert "emoji" in rule.value.lower() or "use" in rule.value.lower()
+
+    def test_en_always(self, detector: SignalDetector):
+        """'always respond in bullet points' → EXPLICIT / ALPHA"""
+        sig = detector.detect("always respond in bullet points")
+        assert sig is not None
+        assert sig.signal_type == SignalType.EXPLICIT
+        assert sig.rule_class  == RuleClass.ALPHA
+
+    def test_en_remember_that(self, detector: SignalDetector, extractor: Extractor):
+        """'remember that our project is called VIKI' → EXPLICIT / PRIORITIES / BETA"""
+        msg = "remember that our project is called VIKI"
+        sig = detector.detect(msg)
+        assert sig is not None
+        assert sig.signal_type == SignalType.EXPLICIT
+        assert sig.section     == Section.PRIORITIES
+        assert sig.rule_class  == RuleClass.BETA
+
+        rule = run(extractor, msg)
+        assert rule is not None
+        assert rule.section == Section.PRIORITIES.value
+        assert "VIKI" in rule.value
+
+    def test_en_from_now_on(self, detector: SignalDetector):
+        """'from now on use formal language' → EXPLICIT / ALPHA"""
+        sig = detector.detect("from now on use formal language")
+        assert sig is not None
+        assert sig.signal_type == SignalType.EXPLICIT
+        assert sig.rule_class  == RuleClass.ALPHA
+
+    # ── DOMAIN EN ─────────────────────────────────────────────────────────────
+
+    def test_en_dont_say_we_say(self, detector: SignalDetector, extractor: Extractor):
+        """'don't say fine-tuning, we say fine-tune' → DOMAIN / GAMMA"""
+        msg = "don't say fine-tuning, we say fine-tune"
+        sig = detector.detect(msg)
+        assert sig is not None
+        assert sig.signal_type == SignalType.DOMAIN, \
+            f"Expected DOMAIN, got {sig.signal_type} (matched: '{sig.matched_pattern}')"
+        assert sig.section    == Section.DOMAIN_KNOWLEDGE
+        assert sig.rule_class == RuleClass.GAMMA
+
+        rule = run(extractor, msg)
+        assert rule is not None
+        assert rule.source  == SignalType.DOMAIN.value
+        assert rule.section == Section.DOMAIN_KNOWLEDGE.value
+
+    def test_en_dont_say_we_call_it(self, detector: SignalDetector):
+        """'don't say API, we call it interface' → DOMAIN"""
+        sig = detector.detect("don't say API, we call it interface")
+        assert sig is not None
+        assert sig.signal_type == SignalType.DOMAIN
+
+    def test_en_dont_say_we_use(self, detector: SignalDetector):
+        """'don't say plugin, we use adapter' → DOMAIN"""
+        sig = detector.detect("don't say plugin, we use adapter")
+        assert sig is not None
+        assert sig.signal_type == SignalType.DOMAIN
+
+    def test_en_instead_of_use(self, detector: SignalDetector, extractor: Extractor):
+        """'instead of LLM use language model' → DOMAIN / GAMMA"""
+        msg = "instead of LLM use language model"
+        sig = detector.detect(msg)
+        assert sig is not None
+        assert sig.signal_type == SignalType.DOMAIN, \
+            f"Expected DOMAIN, got {sig.signal_type} (matched: '{sig.matched_pattern}')"
+        assert sig.section    == Section.DOMAIN_KNOWLEDGE
+
+        rule = run(extractor, msg)
+        assert rule is not None
+        assert rule.source == SignalType.DOMAIN.value
+        assert rule.cls    == RuleClass.GAMMA.value
+
+    def test_en_instead_of_say(self, detector: SignalDetector):
+        """'instead of GPU say graphics card' → DOMAIN"""
+        sig = detector.detect("instead of GPU say graphics card")
+        assert sig is not None
+        assert sig.signal_type == SignalType.DOMAIN
+
+    def test_en_we_call_it(self, detector: SignalDetector):
+        """'we call it adapter not plugin' → DOMAIN"""
+        sig = detector.detect("we call it adapter not plugin")
+        assert sig is not None
+        assert sig.signal_type == SignalType.DOMAIN
+
+    def test_en_the_term_is(self, detector: SignalDetector):
+        """'the term is fine-tune not fine-tuning' → DOMAIN"""
+        sig = detector.detect("the term is fine-tune not fine-tuning")
+        assert sig is not None
+        assert sig.signal_type == SignalType.DOMAIN
+
+    # ── Priority: DOMAIN over IMPLICIT for EN patterns ────────────────────────
+
+    def test_en_domain_priority_over_implicit(self, detector: SignalDetector):
+        """EN DOMAIN patterns must not be classified as IMPLICIT."""
+        domain_msgs = [
+            "don't say fine-tuning, we say fine-tune",
+            "don't say API, we call it interface",
+            "instead of LLM use language model",
+            "instead of GPU say graphics card",
+        ]
+        for msg in domain_msgs:
+            sig = detector.detect(msg)
+            assert sig is not None
+            assert sig.signal_type == SignalType.DOMAIN, \
+                f"'{msg}' → expected DOMAIN, got {sig.signal_type}"
+
+    # ── Value extraction for EN ───────────────────────────────────────────────
+
+    def test_en_value_extraction_from_now_on(self, detector: SignalDetector, extractor: Extractor):
+        """Trigger phrases stripped from extracted value."""
+        msg  = "from now on always respond in English"
+        rule = run(extractor, msg)
+        assert rule is not None
+        # "from now on" and "always" should be stripped
+        assert rule.value.strip() != ""
+        assert "respond in English" in rule.value or "English" in rule.value
+
+    def test_en_value_extraction_remember(self, detector: SignalDetector, extractor: Extractor):
+        """'remember that' stripped, core content preserved."""
+        msg  = "remember that our project is called VIKI"
+        rule = run(extractor, msg)
+        assert rule is not None
+        assert "VIKI" in rule.value
